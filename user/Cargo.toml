@@ -26,3 +26,6 @@ thiserror = { workspace = true }
 time = { workspace = true }
 tracing = { workspace = true }
 ureq = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_UI_Shell", "Win32_System_Com"] }

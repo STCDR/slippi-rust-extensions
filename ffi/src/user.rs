@@ -4,6 +4,32 @@ use slippi_exi_device::SlippiEXIDevice;
 
 use crate::{c_str_to_string, with, with_returning};
 
+/// Checks first-run import eligibility before Dolphin initializes its settings.
+#[unsafe(no_mangle)]
+pub extern "C" fn slprs_launcher_import_available(user_directory: *const c_char) -> bool {
+    let directory = c_str_to_string(user_directory, "slprs_launcher_import_available", "user_directory");
+    match slippi_user::profile_import::launcher_import_available(std::path::Path::new(&directory)) {
+        Ok(available) => available,
+        Err(error) => {
+            tracing::warn!("Launcher import discovery failed: {error}");
+            false
+        },
+    }
+}
+
+/// Records the Yes/No answer and imports on Yes. Returns false on an I/O error.
+#[unsafe(no_mangle)]
+pub extern "C" fn slprs_launcher_import_finish(user_directory: *const c_char, import: bool) -> bool {
+    let directory = c_str_to_string(user_directory, "slprs_launcher_import_finish", "user_directory");
+    match slippi_user::profile_import::finish_launcher_import(std::path::Path::new(&directory), import) {
+        Ok(_) => true,
+        Err(error) => {
+            tracing::warn!("Launcher settings import failed: {error}");
+            false
+        },
+    }
+}
+
 /// Instructs the `UserManager` on the EXI Device at the provided pointer to attempt
 /// authentication. This runs synchronously on whatever thread it's called on.
 #[unsafe(no_mangle)]

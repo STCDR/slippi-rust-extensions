@@ -299,6 +299,16 @@ void slprs_fetch_match_result(uintptr_t exi_device_instance_ptr, const char *mat
 struct RustRankInfo slprs_get_rank_info(uintptr_t exi_device_instance_ptr);
 
 /**
+ * Checks first-run import eligibility before Dolphin initializes its settings.
+ */
+bool slprs_launcher_import_available(const char *user_directory);
+
+/**
+ * Records the Yes/No answer and imports on Yes. Returns false on an I/O error.
+ */
+bool slprs_launcher_import_finish(const char *user_directory, bool import);
+
+/**
  * Instructs the `UserManager` on the EXI Device at the provided pointer to attempt
  * authentication. This runs synchronously on whatever thread it's called on.
  */

@@ -10,6 +10,11 @@ use slippi_gg_api::APIClient;
 mod chat;
 pub use chat::DEFAULT_CHAT_MESSAGES;
 
+mod account_files;
+use account_files::AccountFiles;
+
+pub mod profile_import;
+
 mod direct_codes;
 use direct_codes::DirectCodes;
 
@@ -37,7 +42,7 @@ pub struct UserInfo {
     #[serde(alias = "connectCode")]
     pub connect_code: String,
 
-    #[serde(alias = "latestVersion")]
+    #[serde(default, alias = "latestVersion")]
     pub latest_version: String,
 
     #[serde(alias = "chatMessages")]
@@ -78,7 +83,7 @@ pub struct UserManager {
     api_client: APIClient,
     user: Arc<Mutex<UserInfo>>,
     rank: Arc<Mutex<RankInfo>>,
-    user_json_path: Arc<PathBuf>,
+    account_files: Arc<AccountFiles>,
     pub direct_codes: DirectCodes,
     pub teams_direct_codes: DirectCodes,
     slippi_semver: String,
@@ -109,10 +114,10 @@ impl UserManager {
             path
         });
 
-        let user_json_path = Arc::new({
+        let account_files = Arc::new(AccountFiles::new({
             user_config_folder.push("user.json");
             user_config_folder
-        });
+        }));
 
         let user = Arc::new(Mutex::new(UserInfo::default()));
         let rank = Arc::new(Mutex::new(RankInfo::default()));
@@ -124,7 +129,7 @@ impl UserManager {
             api_client,
             user,
             rank,
-            user_json_path,
+            account_files,
             direct_codes,
             teams_direct_codes,
             slippi_semver,
@@ -188,7 +193,7 @@ impl UserManager {
             &self.user,
             &self.rank,
             &self.rank_fetcher.status,
-            &self.user_json_path,
+            &self.account_files,
             &self.slippi_semver,
         )
     }
@@ -199,7 +204,7 @@ impl UserManager {
 
         watcher.watch_for_login(
             &self.api_client,
-            &self.user_json_path,
+            &self.account_files,
             &self.user,
             &self.rank,
             &self.rank_fetcher.status,
@@ -210,7 +215,7 @@ impl UserManager {
     /// Pops open a browser window for the older authentication flow. This is less encountered by
     /// users as time goes on, but may still be used.
     pub fn open_login_page(&self) {
-        let path_ref = self.user_json_path.as_path();
+        let path_ref = self.account_files.local_path();
 
         if let Some(path) = path_ref.to_str() {
             let url = format!("https://slippi.gg/online/enable?path={path}");
@@ -272,18 +277,21 @@ impl UserManager {
 
     /// Logs the current user out and removes their `user.json` from the filesystem.
     pub fn logout(&mut self) {
+        // Stop and join before resetting the user; a pending external-file login
+        // must not repopulate the account after the user has signed out.
+        self.watcher
+            .lock()
+            .expect("Unable to acquire watcher lock on user logout")
+            .logout();
+
         // Reset rank state values to defaults
         self.rank = Arc::new(Mutex::new(RankInfo::default()));
         self.rank_fetcher.status.set(RankFetchStatus::Error);
         self.set(|user| *user = UserInfo::default());
 
-        if let Err(error) = std::fs::remove_file(self.user_json_path.as_path()) {
+        if let Err(error) = self.account_files.logout() {
             tracing::error!(target: Log::SlippiOnline, ?error, "Failed to remove user.json on logout");
         }
-
-        let mut watcher = self.watcher.lock().expect("Unable to acquire watcher lock on user logout");
-
-        watcher.logout();
     }
 }
 
@@ -295,12 +303,12 @@ fn attempt_login(
     user: &Mutex<UserInfo>,
     rank: &Mutex<RankInfo>,
     rank_fetcher_status: &RankFetcherStatus,
-    user_json_path: &PathBuf,
+    account_files: &AccountFiles,
     slippi_semver: &str,
 ) -> bool {
     let mut parse_successful = false;
 
-    match std::fs::read_to_string(user_json_path) {
+    match account_files.read() {
         Ok(contents) => match serde_json::from_str::<UserInfo>(&contents) {
             Ok(mut info) => {
                 info.sanitize();

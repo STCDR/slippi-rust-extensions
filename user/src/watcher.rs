@@ -1,4 +1,3 @@
-use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -7,6 +6,7 @@ use std::time::Duration;
 use dolphin_integrations::Log;
 use slippi_gg_api::APIClient;
 
+use super::account_files::AccountFiles;
 use super::{RankFetcherStatus, RankInfo, UserInfo, attempt_login};
 
 /// This type manages access to user information, as well as any background thread watching
@@ -30,7 +30,7 @@ impl UserInfoWatcher {
     pub fn watch_for_login(
         &mut self,
         api_client: &APIClient,
-        user_json_path: &Arc<PathBuf>,
+        account_files: &Arc<AccountFiles>,
         user: &Arc<Mutex<UserInfo>>,
         rank: &Arc<Mutex<RankInfo>>,
         rank_fetcher_status: &RankFetcherStatus,
@@ -51,7 +51,7 @@ impl UserInfoWatcher {
         // Create owned types once we know we're actually launching the thread.
         let semver = slippi_semver.to_string();
         let client = api_client.clone();
-        let json_path = user_json_path.clone();
+        let account_files = account_files.clone();
         let user = user.clone();
         let rank = rank.clone();
         let rank_fetcher_status = rank_fetcher_status.clone();
@@ -64,7 +64,7 @@ impl UserInfoWatcher {
                         return;
                     }
 
-                    if attempt_login(&client, &user, &rank, &rank_fetcher_status, &json_path, &semver) {
+                    if attempt_login(&client, &user, &rank, &rank_fetcher_status, &account_files, &semver) {
                         return;
                     }
 
@@ -79,7 +79,7 @@ impl UserInfoWatcher {
     /// On logout, we just need to stop the watcher thread. The thread will get
     /// restarted via some conditions elsewhere.
     pub fn logout(&mut self) {
-        self.should_watch.store(false, Ordering::Relaxed);
+        self.release_thread();
     }
 
     /// Standard logic for popping the thread handle and joining it, logging on failure.
